@@ -40,21 +40,22 @@ export class ValidationMiddleware {
     return { valid: true, sanitized };
   }
 
-  static validateScale(scale: string | number | undefined): { valid: boolean; error?: string; sanitized?: 128 | 256 | 512 } {
+  static validateScale(scale: string | number | undefined): { valid: boolean; error?: string; sanitized: 128 | 256 | 512 } {
     if (!scale) {
-      return { valid: false, error: 'Scale parameter is required' };
+      return { valid: true, sanitized: 256 }; // Default to 256 if not provided
     }
 
     const numericScale = typeof scale === 'string' ? parseInt(scale, 10) : scale;
 
     if (isNaN(numericScale)) {
-      return { valid: false, error: 'Scale must be a valid number' };
+      return { valid: false, error: 'Scale must be a valid number', sanitized: 256 };
     }
 
     if (!this.VALID_SCALES.includes(numericScale as any)) {
       return { 
         valid: false, 
-        error: `Scale must be one of: ${this.VALID_SCALES.join(', ')}` 
+        error: `Scale must be one of: ${this.VALID_SCALES.join(', ')}`,
+        sanitized: 256
       };
     }
 
@@ -127,7 +128,7 @@ export class ValidationMiddleware {
         errors,
         sanitized: {
           description: descriptionResult.sanitized || '',
-          scale: scaleResult.sanitized || 128,
+          scale: scaleResult.sanitized,
           format: formatResult.sanitized
         }
       };
