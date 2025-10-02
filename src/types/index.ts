@@ -8,6 +8,7 @@ export interface WorkerEnvironment {
   APPWRITE_COLLECTION_ID: string;
   APPWRITE_BUCKET_ID: string;
   RATE_LIMIT: KVNamespace;
+  [key: string]: any; // Index signature for Hono compatibility
 }
 
 export interface AvatarRequest {
@@ -60,4 +61,21 @@ export enum ErrorType {
   APPWRITE_QUERY_ERROR = 'appwrite_query_error',
   STORAGE_ACCESS_ERROR = 'storage_access_error',
   INTERNAL_ERROR = 'internal_error'
+}
+
+export interface CacheConfig {
+  successTtl: number;
+  errorTtl: number;
+}
+
+export interface CacheMetrics {
+  hits: number;
+  misses: number;
+  hitRate: number;
+}
+
+export interface CacheResult {
+  hit: boolean;
+  response?: Response;
+  key: string;
 }
