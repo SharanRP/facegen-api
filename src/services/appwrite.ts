@@ -59,18 +59,32 @@ export class AppwriteServiceImpl implements AppwriteService {
       
       try {
         const searchQuery = keywords.join(' ');
-        const queries = [
+        
+        let queries = [
           Query.search('tags', searchQuery),
-          Query.equal('width', scale),
-          Query.equal('height', scale),
+          Query.greaterThanEqual('width', Math.floor(scale * 0.8)),
+          Query.lessThanEqual('width', Math.ceil(scale * 1.2)), 
           Query.limit(10)
         ];
 
-        const response = await this.databases.listDocuments(
+        let response = await this.databases.listDocuments(
           this.databaseId,
           this.collectionId,
           queries
         );
+
+        if (response.documents.length === 0) {
+          queries = [
+            Query.search('tags', searchQuery),
+            Query.limit(10)
+          ];
+
+          response = await this.databases.listDocuments(
+            this.databaseId,
+            this.collectionId,
+            queries
+          );
+        }
 
         const results = response.documents.map((doc: any) => ({
           $id: doc.$id,

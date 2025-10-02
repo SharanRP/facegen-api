@@ -1,0 +1,93 @@
+name = "avatar-api-service"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Worker configuration
+[build]
+command = "npm run build"
+
+# Development environment
+[env.development]
+name = "avatar-api-service-dev"
+
+[env.development.vars]
+ENVIRONMENT = "development"
+APPWRITE_ENDPOINT = "YOUR_APPWRITE_ENDPOINT"
+APPWRITE_DATABASE_ID = "YOUR_DATABASE_ID"
+APPWRITE_COLLECTION_ID = "YOUR_COLLECTION_ID"
+APPWRITE_BUCKET_ID = "YOUR_BUCKET_ID"
+RATE_LIMIT_PER_MINUTE = "100"
+RATE_LIMIT_PER_HOUR = "1000"
+CACHE_TTL_SUCCESS = "3600"
+CACHE_TTL_ERROR = "300"
+CIRCUIT_BREAKER_THRESHOLD = "5"
+CIRCUIT_BREAKER_TIMEOUT = "30000"
+LOG_LEVEL = "debug"
+
+# Staging environment
+[env.staging]
+name = "avatar-api-service-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+APPWRITE_ENDPOINT = "YOUR_APPWRITE_ENDPOINT"
+APPWRITE_DATABASE_ID = "YOUR_DATABASE_ID"
+APPWRITE_COLLECTION_ID = "YOUR_COLLECTION_ID"
+APPWRITE_BUCKET_ID = "YOUR_BUCKET_ID"
+RATE_LIMIT_PER_MINUTE = "100"
+RATE_LIMIT_PER_HOUR = "1000"
+CACHE_TTL_SUCCESS = "3600"
+CACHE_TTL_ERROR = "300"
+CIRCUIT_BREAKER_THRESHOLD = "5"
+CIRCUIT_BREAKER_TIMEOUT = "30000"
+LOG_LEVEL = "info"
+
+# Production environment
+[env.production]
+name = "avatar-api-service"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+APPWRITE_ENDPOINT = "YOUR_APPWRITE_ENDPOINT"
+APPWRITE_DATABASE_ID = "YOUR_DATABASE_ID"
+APPWRITE_COLLECTION_ID = "YOUR_COLLECTION_ID"
+APPWRITE_BUCKET_ID = "YOUR_BUCKET_ID"
+RATE_LIMIT_PER_MINUTE = "100"
+RATE_LIMIT_PER_HOUR = "1000"
+CACHE_TTL_SUCCESS = "3600"
+CACHE_TTL_ERROR = "300"
+CIRCUIT_BREAKER_THRESHOLD = "5"
+CIRCUIT_BREAKER_TIMEOUT = "30000"
+LOG_LEVEL = "info"
+
+# KV namespace for rate limiting - Development
+[[env.development.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "YOUR_DEV_KV_NAMESPACE_ID"
+preview_id = "YOUR_DEV_PREVIEW_KV_NAMESPACE_ID"
+
+# KV namespace for rate limiting - Staging
+[[env.staging.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "YOUR_STAGING_KV_NAMESPACE_ID"
+preview_id = "YOUR_STAGING_PREVIEW_KV_NAMESPACE_ID"
+
+# KV namespace for rate limiting - Production
+[[env.production.kv_namespaces]]
+binding = "RATE_LIMIT"
+id = "YOUR_PRODUCTION_KV_NAMESPACE_ID"
+preview_id = "YOUR_PRODUCTION_PREVIEW_KV_NAMESPACE_ID"
+
+# Secrets (set via wrangler secret put)
+# Required secrets for all environments:
+# - APPWRITE_PROJECT_ID
+# - APPWRITE_API_KEY
+
+# Optional secrets for enhanced security:
+# - CORS_ALLOWED_ORIGINS (comma-separated list)
+# - API_KEY_HEADER_NAME (custom header for API key auth)
+
+# Analytics and monitoring
+[observability]
+enabled = true
