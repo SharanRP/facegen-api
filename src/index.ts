@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { WorkerEnvironment } from './types/index';
 import { createAvatarHandler, AvatarHandlerContext } from './handlers/avatar';
+import { createHealthHandler, HealthHandlerContext } from './handlers/health';
+import { ErrorClassifier, CorrelationIdGenerator, ErrorLogger } from './utils/errors';
 
 type Env = {
   Bindings: WorkerEnvironment;
@@ -19,21 +21,28 @@ app.use('*', cors({
 
 // Health check endpoint
 app.get('/health', (c) => {
-  return c.json({
-    status: 'healthy',
-    timestamp: Date.now(),
-    service: 'avatar-api'
-  });
+  if (!c.env) {
+    const correlationId = CorrelationIdGenerator.generate();
+    const error = ErrorClassifier.classify(new Error('Environment not available'));
+    const errorResponse = error.toResponse(correlationId);
+    
+    c.header('X-Correlation-ID', correlationId);
+    return c.json(errorResponse, error.statusCode);
+  }
+  
+  const healthHandler = createHealthHandler(c.env);
+  return healthHandler(c as HealthHandlerContext);
 });
 
 // Avatar endpoint
 app.get('/avatar', (c) => {
   if (!c.env) {
-    return c.json({
-      error: 'internal_error',
-      message: 'Environment not available',
-      timestamp: Date.now()
-    }, 500);
+    const correlationId = CorrelationIdGenerator.generate();
+    const error = ErrorClassifier.classify(new Error('Environment not available'));
+    const errorResponse = error.toResponse(correlationId);
+    
+    c.header('X-Correlation-ID', correlationId);
+    return c.json(errorResponse, error.statusCode);
   }
   
   const avatarHandler = createAvatarHandler(c.env);
@@ -42,21 +51,36 @@ app.get('/avatar', (c) => {
 
 // Handle 404 for other routes
 app.notFound((c) => {
-  return c.json({
-    error: 'not_found',
-    message: 'Endpoint not found',
-    timestamp: Date.now()
-  }, 404);
+  const correlationId = CorrelationIdGenerator.generate();
+  const error = ErrorClassifier.notFoundError('Endpoint not found');
+  const errorResponse = error.toResponse(correlationId);
+  
+  ErrorLogger.logError(error, correlationId, {
+    requestPath: c.req.path,
+    requestMethod: c.req.method,
+    ip: c.req.header('CF-Connecting-IP') || 'unknown',
+    userAgent: c.req.header('User-Agent')
+  });
+  
+  c.header('X-Correlation-ID', correlationId);
+  return c.json(errorResponse, 404);
 });
 
 // Global error handler
 app.onError((err, c) => {
-  console.error('Unhandled error:', err);
-  return c.json({
-    error: 'internal_error',
-    message: 'An unexpected error occurred',
-    timestamp: Date.now()
-  }, 500);
+  const correlationId = CorrelationIdGenerator.generate();
+  const error = ErrorClassifier.classify(err);
+  const errorResponse = error.toResponse(correlationId);
+  
+  ErrorLogger.logError(error, correlationId, {
+    requestPath: c.req.path,
+    requestMethod: c.req.method,
+    ip: c.req.header('CF-Connecting-IP') || 'unknown',
+    userAgent: c.req.header('User-Agent')
+  });
+  
+  c.header('X-Correlation-ID', correlationId);
+  return c.json(errorResponse, error.statusCode);
 });
 
 export default app;

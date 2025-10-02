@@ -1,20 +1,21 @@
 import { Client, Databases, Storage, Query } from 'node-appwrite';
 import { AvatarDocument, WorkerEnvironment, ErrorType } from '../types';
-
+import { CircuitBreaker, CircuitBreakerFactory, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../utils/circuit-breaker';
+import { AvatarAPIError, ErrorClassifier } from '../utils/errors';
 
 export interface AppwriteService {
   searchAvatars(keywords: string[], scale: number): Promise<AvatarDocument[]>;
   getFileUrl(bucketId: string, fileId: string): Promise<string>;
 }
 
-export class AppwriteError extends Error {
+export class AppwriteError extends AvatarAPIError {
   constructor(
     message: string,
-    public type: ErrorType,
-    public statusCode: number = 500,
-    public originalError?: Error
+    type: ErrorType,
+    statusCode: number = 500,
+    originalError?: Error
   ) {
-    super(message);
+    super(message, type, statusCode, undefined, originalError);
     this.name = 'AppwriteError';
   }
 }
@@ -25,8 +26,8 @@ export class AppwriteServiceImpl implements AppwriteService {
   private storage: Storage;
   private databaseId: string;
   private collectionId: string;
-
-  private readonly connectionTimeout = 5000;
+  private databaseCircuitBreaker: CircuitBreaker;
+  private storageCircuitBreaker: CircuitBreaker;
 
   constructor(env: WorkerEnvironment) {
     this.client = new Client()
@@ -39,111 +40,84 @@ export class AppwriteServiceImpl implements AppwriteService {
     this.databaseId = env.APPWRITE_DATABASE_ID;
     this.collectionId = env.APPWRITE_COLLECTION_ID;
 
+    this.databaseCircuitBreaker = CircuitBreakerFactory.getInstance(
+      'appwrite-database',
+      DEFAULT_CIRCUIT_BREAKER_CONFIG
+    );
+    
+    this.storageCircuitBreaker = CircuitBreakerFactory.getInstance(
+      'appwrite-storage',
+      DEFAULT_CIRCUIT_BREAKER_CONFIG
+    );
   }
 
-  private async withTimeout<T>(operation: Promise<T>, timeoutMs: number = this.connectionTimeout): Promise<T> {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Operation timeout')), timeoutMs);
-    });
-
-    return Promise.race([operation, timeoutPromise]);
-  }
 
   async searchAvatars(keywords: string[], scale: number): Promise<AvatarDocument[]> {
-    try {
-      const searchQuery = keywords.join(' ');
-      const queries = [
-        Query.search('tags', searchQuery),
-        Query.equal('width', scale),
-        Query.equal('height', scale),
-        Query.limit(10)
-      ];
+    return await this.databaseCircuitBreaker.execute(async () => {
+      try {
+        const searchQuery = keywords.join(' ');
+        const queries = [
+          Query.search('tags', searchQuery),
+          Query.equal('width', scale),
+          Query.equal('height', scale),
+          Query.limit(10)
+        ];
 
-      const response = await this.withTimeout(
-        this.databases.listDocuments(
+        const response = await this.databases.listDocuments(
           this.databaseId,
           this.collectionId,
           queries
-        )
-      );
+        );
 
-      return response.documents.map((doc: any) => ({
-        $id: doc.$id,
-        description: doc.description as string,
-        tags: doc.tags as string,
-        fileId: doc.fileId as string,
-        bucketId: doc.bucketId as string,
-        width: doc.width as number,
-        height: doc.height as number,
-        embedding: doc.embedding as string | undefined
-      }));
+        return response.documents.map((doc: any) => ({
+          $id: doc.$id,
+          description: doc.description as string,
+          tags: doc.tags as string,
+          fileId: doc.fileId as string,
+          bucketId: doc.bucketId as string,
+          width: doc.width as number,
+          height: doc.height as number,
+          embedding: doc.embedding as string | undefined
+        }));
 
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('timeout') || error.message.includes('network')) {
-          throw new AppwriteError(
-            'Failed to connect to Appwrite database',
-            ErrorType.APPWRITE_CONNECTION_ERROR,
-            502,
-            error
-          );
-        }
-        
-        if (error.message.includes('query') || error.message.includes('search')) {
-          throw new AppwriteError(
-            'Database query failed',
-            ErrorType.APPWRITE_QUERY_ERROR,
-            500,
-            error
-          );
-        }
+      } catch (error) {
+        throw error;
       }
-
-      throw new AppwriteError(
-        'Appwrite service error',
-        ErrorType.APPWRITE_CONNECTION_ERROR,
-        502,
-        error instanceof Error ? error : new Error(String(error))
-      );
-    }
+    });
   }
 
   async getFileUrl(bucketId: string, fileId: string): Promise<string> {
-    try {
-      const fileUrl = await this.withTimeout(
-        Promise.resolve(this.storage.getFileView(bucketId, fileId))
-      );
-      
-      return fileUrl.toString();
+    return await this.storageCircuitBreaker.execute(async () => {
+      try {
+        const fileUrl = this.storage.getFileView(bucketId, fileId);
+        return fileUrl.toString();
 
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('not found') || error.message.includes('404')) {
-          throw new AppwriteError(
-            'Avatar file not found in storage',
-            ErrorType.NOT_FOUND_ERROR,
-            404,
-            error
-          );
+      } catch (error) {
+        if (error instanceof Error) {
+          const message = error.message.toLowerCase();
+          
+          if (message.includes('not found') || message.includes('404')) {
+            throw new AppwriteError(
+              'Avatar file not found in storage',
+              ErrorType.NOT_FOUND_ERROR,
+              404,
+              error
+            );
+          }
+          
+          if (message.includes('permission') || message.includes('403')) {
+            throw new AppwriteError(
+              'Access denied to avatar file',
+              ErrorType.STORAGE_ACCESS_ERROR,
+              403,
+              error
+            );
+          }
         }
-        
-        if (error.message.includes('permission') || error.message.includes('403')) {
-          throw new AppwriteError(
-            'Access denied to avatar file',
-            ErrorType.STORAGE_ACCESS_ERROR,
-            403,
-            error
-          );
-        }
+
+        throw error;
       }
-
-      throw new AppwriteError(
-        'Failed to generate file URL',
-        ErrorType.STORAGE_ACCESS_ERROR,
-        500,
-        error instanceof Error ? error : new Error(String(error))
-      );
-    }
+    });
   }
 }
 
