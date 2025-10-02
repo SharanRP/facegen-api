@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { WorkerEnvironment } from '../types';
 import { CircuitBreakerFactory } from '../utils/circuit-breaker';
 import { CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
+import { MonitoringAggregator, Logger } from '../utils/logger';
 
 export interface HealthCheckResponse {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -26,6 +27,11 @@ export interface HealthCheckResponse {
         totalRequests: number;
       };
     };
+  };
+  metrics?: {
+    performance: Record<string, any>;
+    errors: Record<string, number>;
+    requests: Record<string, number>;
   };
   version?: string;
 }
@@ -97,6 +103,7 @@ export class HealthHandler {
       const databaseStatus = this.getServiceStatus(databaseMetrics.state, databaseMetrics.totalRequests);
       const storageStatus = this.getServiceStatus(storageMetrics.state, storageMetrics.totalRequests);
       const overallStatus = this.getOverallStatus(databaseStatus, storageStatus);
+      const monitoringMetrics = MonitoringAggregator.getMetrics();
 
       const healthResponse: HealthCheckResponse = {
         status: overallStatus,
@@ -121,6 +128,11 @@ export class HealthHandler {
               totalRequests: storageMetrics.totalRequests
             }
           }
+        },
+        metrics: {
+          performance: monitoringMetrics.response_time_avatar_request || {},
+          errors: monitoringMetrics.errors || {},
+          requests: monitoringMetrics.requests || {}
         },
         version: '1.0.0'
       };

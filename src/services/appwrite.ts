@@ -1,7 +1,8 @@
 import { Client, Databases, Storage, Query } from 'node-appwrite';
 import { AvatarDocument, WorkerEnvironment, ErrorType } from '../types';
 import { CircuitBreaker, CircuitBreakerFactory, DEFAULT_CIRCUIT_BREAKER_CONFIG } from '../utils/circuit-breaker';
-import { AvatarAPIError, ErrorClassifier } from '../utils/errors';
+import { AvatarAPIError } from '../utils/errors';
+import { PerformanceTimer, MonitoringAggregator } from '../utils/logger';
 
 export interface AppwriteService {
   searchAvatars(keywords: string[], scale: number): Promise<AvatarDocument[]>;
@@ -54,6 +55,8 @@ export class AppwriteServiceImpl implements AppwriteService {
 
   async searchAvatars(keywords: string[], scale: number): Promise<AvatarDocument[]> {
     return await this.databaseCircuitBreaker.execute(async () => {
+      const timer = new PerformanceTimer('appwrite-search', 'database_search');
+      
       try {
         const searchQuery = keywords.join(' ');
         const queries = [
@@ -69,7 +72,7 @@ export class AppwriteServiceImpl implements AppwriteService {
           queries
         );
 
-        return response.documents.map((doc: any) => ({
+        const results = response.documents.map((doc: any) => ({
           $id: doc.$id,
           description: doc.description as string,
           tags: doc.tags as string,
@@ -80,7 +83,19 @@ export class AppwriteServiceImpl implements AppwriteService {
           embedding: doc.embedding as string | undefined
         }));
 
+        const duration = timer.finish(true, undefined, {
+          keywords: keywords.join(','),
+          scale,
+          resultCount: results.length
+        });
+
+        MonitoringAggregator.recordResponseTime('appwrite_search', duration);
+
+        return results;
+
       } catch (error) {
+        timer.finish(false, error instanceof Error ? error.message : String(error));
+        MonitoringAggregator.recordError('appwrite_search_error');
         throw error;
       }
     });
@@ -88,11 +103,25 @@ export class AppwriteServiceImpl implements AppwriteService {
 
   async getFileUrl(bucketId: string, fileId: string): Promise<string> {
     return await this.storageCircuitBreaker.execute(async () => {
+      const timer = new PerformanceTimer('appwrite-storage', 'file_url_generation');
+      
       try {
         const fileUrl = this.storage.getFileView(bucketId, fileId);
-        return fileUrl.toString();
+        const urlString = fileUrl.toString();
+
+        const duration = timer.finish(true, undefined, {
+          bucketId,
+          fileId
+        });
+
+        MonitoringAggregator.recordResponseTime('appwrite_file_url', duration);
+
+        return urlString;
 
       } catch (error) {
+        timer.finish(false, error instanceof Error ? error.message : String(error));
+        MonitoringAggregator.recordError('appwrite_file_url_error');
+
         if (error instanceof Error) {
           const message = error.message.toLowerCase();
           

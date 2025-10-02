@@ -1,10 +1,11 @@
 import { Context } from 'hono';
-import { AvatarRequest, WorkerEnvironment, ErrorResponse, ErrorType, AvatarDocument } from '../types';
+import { AvatarRequest, WorkerEnvironment, ErrorType, AvatarDocument } from '../types';
 import { validateAvatarRequest } from '../middleware/validation';
 import { RateLimitTracker, DEFAULT_RATE_LIMIT_CONFIG } from '../middleware/ratelimit';
 import { cacheService } from '../services/cache';
-import { createAppwriteService, AppwriteError } from '../services/appwrite';
+import { createAppwriteService } from '../services/appwrite';
 import { AvatarAPIError, ErrorClassifier, CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
+import { PerformanceTimer, RequestLogger, RequestMetrics, MonitoringAggregator } from '../utils/logger';
 
 export interface AvatarHandlerContext extends Context {
   env: WorkerEnvironment;
@@ -182,37 +183,71 @@ export class AvatarHandler {
 
   async handle(c: AvatarHandlerContext): Promise<Response> {
     const correlationId = CorrelationIdGenerator.fromRequest(c.req.raw);
-    const startTime = Date.now();
+    const requestTimer = new PerformanceTimer(correlationId, 'avatar_request');
     const requestContext = this.getRequestContext(c);
 
     c.header('X-Correlation-ID', correlationId);
 
+    let avatarRequest: AvatarRequest | undefined;
+    let rateLimitRemaining: number | undefined;
+    let cacheHit = false;
+    let appwriteQueryMs: number | undefined;
+    let avatarId: string | undefined;
+    let cacheKey: string | undefined;
+
     try {
+      const rateLimitTimer = new PerformanceTimer(correlationId, 'rate_limit_check');
       const rateLimitResponse = await this.checkRateLimit(c, correlationId);
+      rateLimitTimer.finish(rateLimitResponse === null);
+      
       if (rateLimitResponse) {
+        rateLimitRemaining = parseInt(rateLimitResponse.headers.get('X-RateLimit-Remaining') || '0');
+        this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
+          status: 429,
+          totalResponseMs: requestTimer.getDuration(),
+          rateLimitRemaining,
+          error: 'Rate limit exceeded'
+        });
         return rateLimitResponse;
       }
 
+      const validationTimer = new PerformanceTimer(correlationId, 'request_validation');
       const validation = this.validateRequest(c, correlationId);
+      validationTimer.finish(validation.valid);
+      
       if (!validation.valid || !validation.request) {
+        this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
+          status: 400,
+          totalResponseMs: requestTimer.getDuration(),
+          error: 'Validation failed'
+        });
         return validation.response!;
       }
 
-      const avatarRequest = validation.request;
+      avatarRequest = validation.request;
+      cacheKey = cacheService.generateCacheKey(avatarRequest);
 
+      const cacheTimer = new PerformanceTimer(correlationId, 'cache_check');
       const cachedResponse = await this.checkCache(c.req.raw, avatarRequest);
+      cacheTimer.finish(true);
+      
       if (cachedResponse) {
-        ErrorLogger.logSuccess(correlationId, {
-          ...requestContext,
-          responseTimeMs: Date.now() - startTime,
-          cacheHit: true
+        cacheHit = true;
+        cachedResponse.headers.set('X-Correlation-ID', correlationId);
+        
+        this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
+          status: 200,
+          totalResponseMs: requestTimer.getDuration(),
+          cacheHit,
+          cacheKey
         });
         
-        cachedResponse.headers.set('X-Correlation-ID', correlationId);
         return cachedResponse;
       }
 
+      const searchTimer = new PerformanceTimer(correlationId, 'appwrite_search');
       const avatars = await this.searchAvatars(avatarRequest);
+      appwriteQueryMs = searchTimer.finish(true);
       
       if (avatars.length === 0) {
         const error = ErrorClassifier.notFoundError(
@@ -220,9 +255,12 @@ export class AvatarHandler {
         );
         const errorResponse = error.toResponse(correlationId);
 
-        ErrorLogger.logError(error, correlationId, {
-          ...requestContext,
-          responseTimeMs: Date.now() - startTime
+        this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
+          status: 404,
+          totalResponseMs: requestTimer.getDuration(),
+          appwriteQueryMs,
+          cacheKey,
+          error: error.message
         });
 
         const notFoundResponse = c.json(errorResponse, 404);
@@ -234,21 +272,28 @@ export class AvatarHandler {
       }
 
       const selectedAvatar = avatars[0];
+      avatarId = selectedAvatar.$id;
 
+      const streamTimer = new PerformanceTimer(correlationId, 'image_streaming');
       const imageResponse = await this.streamImageResponse(selectedAvatar, avatarRequest.format);
+      streamTimer.finish(true);
       
       imageResponse.headers.set('X-Correlation-ID', correlationId);
       
+      const cacheStoreTimer = new PerformanceTimer(correlationId, 'cache_storage');
       const cacheRequest = cacheService.createCacheRequest(c.req.raw, avatarRequest);
       await cacheService.put(cacheRequest, imageResponse.clone());
+      cacheStoreTimer.finish(true);
 
-      const finalResponse = cacheService.addCacheHeaders(imageResponse, false, cacheService.generateCacheKey(avatarRequest));
+      const finalResponse = cacheService.addCacheHeaders(imageResponse, false, cacheKey);
       
-      ErrorLogger.logSuccess(correlationId, {
-        ...requestContext,
-        responseTimeMs: Date.now() - startTime,
-        cacheHit: false,
-        avatarId: selectedAvatar.$id
+      this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
+        status: 200,
+        totalResponseMs: requestTimer.getDuration(),
+        appwriteQueryMs,
+        cacheHit,
+        avatarId,
+        cacheKey
       });
 
       return finalResponse;
@@ -257,13 +302,59 @@ export class AvatarHandler {
       const classifiedError = ErrorClassifier.classify(error);
       const errorResponse = classifiedError.toResponse(correlationId);
 
-      ErrorLogger.logError(classifiedError, correlationId, {
-        ...requestContext,
-        responseTimeMs: Date.now() - startTime
+      this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
+        status: classifiedError.statusCode,
+        totalResponseMs: requestTimer.getDuration(),
+        appwriteQueryMs,
+        cacheHit,
+        avatarId,
+        cacheKey,
+        error: classifiedError.message,
+        errorType: classifiedError.type
       });
 
       return c.json(errorResponse, classifiedError.statusCode);
     }
+  }
+
+  private logRequestMetrics(
+    correlationId: string,
+    requestContext: ReturnType<typeof this.getRequestContext>,
+    avatarRequest: AvatarRequest | undefined,
+    metrics: {
+      status: number;
+      totalResponseMs: number;
+      appwriteQueryMs?: number;
+      cacheHit?: boolean;
+      avatarId?: string;
+      cacheKey?: string;
+      rateLimitRemaining?: number;
+      error?: string;
+      errorType?: ErrorType;
+    }
+  ): void {
+    const requestMetrics: RequestMetrics = {
+      correlationId,
+      timestamp: Date.now(),
+      ip: requestContext.ip,
+      userAgent: requestContext.userAgent,
+      requestPath: requestContext.requestPath,
+      requestMethod: requestContext.requestMethod,
+      description: avatarRequest?.description,
+      scale: avatarRequest?.scale,
+      format: avatarRequest?.format,
+      cacheHit: metrics.cacheHit,
+      appwriteQueryMs: metrics.appwriteQueryMs,
+      totalResponseMs: metrics.totalResponseMs,
+      status: metrics.status,
+      error: metrics.error,
+      errorType: metrics.errorType,
+      avatarId: metrics.avatarId,
+      rateLimitRemaining: metrics.rateLimitRemaining,
+      cacheKey: metrics.cacheKey
+    };
+
+    RequestLogger.logRequest(requestMetrics);
   }
 }
 
