@@ -1,0 +1,43 @@
+{
+  "name": "avatar-api-service",
+  "version": "1.0.0",
+  "description": "A Cloudflare Worker API service for serving avatar images with Appwrite backend",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --env production",
+    "build": "tsc --noEmit",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write src/**/*.ts"
+  },
+  "keywords": [
+    "cloudflare-workers",
+    "avatar",
+    "api",
+    "appwrite",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "hono": "^3.12.0",
+    "node-appwrite": "^13.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240117.0",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.1.0",
+    "eslint": "^8.56.0",
+    "@typescript-eslint/eslint-plugin": "^6.18.0",
+    "@typescript-eslint/parser": "^6.18.0",
+    "prettier": "^3.1.0",
+    "wrangler": "^3.22.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
