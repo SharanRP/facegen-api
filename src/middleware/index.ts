@@ -1,0 +1,1 @@
+export { ValidationMiddleware, validateAvatarRequest } from './validation';
