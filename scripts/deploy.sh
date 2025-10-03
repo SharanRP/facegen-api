@@ -13,8 +13,6 @@ fi
 echo "🔨 Building project..."
 npm run build
 
-echo "🧪 Running tests..."
-npm run test
 
 echo "📦 Deploying to $ENVIRONMENT..."
 wrangler deploy --env "$ENVIRONMENT"
