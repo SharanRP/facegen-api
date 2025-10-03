@@ -130,11 +130,9 @@ export class AvatarHandler {
   private async searchAvatars(avatarRequest: AvatarRequest): Promise<AvatarDocument[]> {
     const keywords = this.extractKeywords(avatarRequest.description);
 
+    // If no valid keywords, fall back to getting random avatars
     if (keywords.length === 0) {
-      throw ErrorClassifier.validationError(
-        'No valid keywords found in description',
-        'Description must contain at least one word with 3 or more characters'
-      );
+      return await this.appwriteService.getFallbackAvatars(avatarRequest.scale);
     }
 
     const dbResults = await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
@@ -148,7 +146,7 @@ export class AvatarHandler {
       return semanticResults.map(result => result.document);
     }
 
-    return dbResults;
+    return await this.appwriteService.getFallbackAvatars(avatarRequest.scale);
   }
 
   private async streamImageResponse(

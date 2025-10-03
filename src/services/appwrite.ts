@@ -6,6 +6,7 @@ import { PerformanceTimer, MonitoringAggregator } from '../utils/logger';
 
 export interface AppwriteService {
   searchAvatars(keywords: string[], scale: number): Promise<AvatarDocument[]>;
+  getFallbackAvatars(scale: number): Promise<AvatarDocument[]>;
   getFileUrl(bucketId: string, fileId: string): Promise<string>;
 }
 
@@ -137,6 +138,63 @@ export class AppwriteServiceImpl implements AppwriteService {
       } catch (error) {
         timer.finish(false, error instanceof Error ? error.message : String(error));
         MonitoringAggregator.recordError('appwrite_search_error');
+        throw error;
+      }
+    });
+  }
+
+  async getFallbackAvatars(scale: number): Promise<AvatarDocument[]> {
+    return await this.databaseCircuitBreaker.execute(async () => {
+      const timer = new PerformanceTimer('appwrite-fallback', 'fallback_search');
+
+      try {
+        let queries = [
+          Query.greaterThanEqual('width', Math.floor(scale * 0.8)),
+          Query.lessThanEqual('width', Math.ceil(scale * 1.2)),
+          Query.limit(20)
+        ];
+
+        let response = await this.databases.listDocuments(
+          this.databaseId,
+          this.collectionId,
+          queries
+        );
+
+        // If no results with scale filter, get any avatars (this should never fail with 5000+ images)
+        if (response.documents.length === 0) {
+          queries = [Query.limit(20)];
+          
+          response = await this.databases.listDocuments(
+            this.databaseId,
+            this.collectionId,
+            queries
+          );
+        }
+
+        const results = response.documents.map((doc: any) => ({
+          $id: doc.$id,
+          description: doc.Description as string,
+          tags: doc.Tags as string,
+          fileId: doc.fileId as string,
+          bucketId: doc.bucketId as string,
+          width: doc.width as number,
+          height: doc.height as number,
+          embedding: doc.embedding as string | undefined
+        }));
+
+        const duration = timer.finish(true, undefined, {
+          scale,
+          resultCount: results.length,
+          fallback: true
+        });
+
+        MonitoringAggregator.recordResponseTime('appwrite_fallback', duration);
+
+        return results;
+
+      } catch (error) {
+        timer.finish(false, error instanceof Error ? error.message : String(error));
+        MonitoringAggregator.recordError('appwrite_fallback_error');
         throw error;
       }
     });
