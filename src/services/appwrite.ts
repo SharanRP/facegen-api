@@ -45,7 +45,7 @@ export class AppwriteServiceImpl implements AppwriteService {
       'appwrite-database',
       DEFAULT_CIRCUIT_BREAKER_CONFIG
     );
-    
+
     this.storageCircuitBreaker = CircuitBreakerFactory.getInstance(
       'appwrite-storage',
       DEFAULT_CIRCUIT_BREAKER_CONFIG
@@ -56,15 +56,15 @@ export class AppwriteServiceImpl implements AppwriteService {
   async searchAvatars(keywords: string[], scale: number): Promise<AvatarDocument[]> {
     return await this.databaseCircuitBreaker.execute(async () => {
       const timer = new PerformanceTimer('appwrite-search', 'database_search');
-      
+
       try {
         const searchQuery = keywords.join(' ');
-        
+
         let queries = [
-          Query.search('tags', searchQuery),
+          Query.search('Tags', searchQuery),
           Query.greaterThanEqual('width', Math.floor(scale * 0.8)),
-          Query.lessThanEqual('width', Math.ceil(scale * 1.2)), 
-          Query.limit(10)
+          Query.lessThanEqual('width', Math.ceil(scale * 1.2)),
+          Query.limit(20)
         ];
 
         let response = await this.databases.listDocuments(
@@ -73,10 +73,10 @@ export class AppwriteServiceImpl implements AppwriteService {
           queries
         );
 
-        if (response.documents.length === 0) {
+        if (response.documents.length < 5) {
           queries = [
-            Query.search('tags', searchQuery),
-            Query.limit(10)
+            Query.search('Tags', searchQuery),
+            Query.limit(20)
           ];
 
           response = await this.databases.listDocuments(
@@ -86,10 +86,37 @@ export class AppwriteServiceImpl implements AppwriteService {
           );
         }
 
+        if (response.documents.length < 5 && keywords.length > 1) {
+          const individualResults = new Map();
+
+          for (const keyword of keywords) {
+            const keywordQueries = [
+              Query.search('Tags', keyword),
+              Query.limit(10)
+            ];
+
+            const keywordResponse = await this.databases.listDocuments(
+              this.databaseId,
+              this.collectionId,
+              keywordQueries
+            );
+
+            keywordResponse.documents.forEach((doc: any) => {
+              if (!individualResults.has(doc.$id)) {
+                individualResults.set(doc.$id, doc);
+              }
+            });
+          }
+
+          if (individualResults.size > response.documents.length) {
+            response.documents = Array.from(individualResults.values());
+          }
+        }
+
         const results = response.documents.map((doc: any) => ({
           $id: doc.$id,
-          description: doc.description as string,
-          tags: doc.tags as string,
+          description: doc.Description as string,
+          tags: doc.Tags as string,
           fileId: doc.fileId as string,
           bucketId: doc.bucketId as string,
           width: doc.width as number,
@@ -118,10 +145,9 @@ export class AppwriteServiceImpl implements AppwriteService {
   async getFileUrl(bucketId: string, fileId: string): Promise<string> {
     return await this.storageCircuitBreaker.execute(async () => {
       const timer = new PerformanceTimer('appwrite-storage', 'file_url_generation');
-      
+
       try {
-        const fileUrl = this.storage.getFileView(bucketId, fileId);
-        const urlString = fileUrl.toString();
+        const urlString = `${this.client.config.endpoint}/storage/buckets/${bucketId}/files/${fileId}/view?project=${this.client.config.project}`;
 
         const duration = timer.finish(true, undefined, {
           bucketId,
@@ -138,7 +164,7 @@ export class AppwriteServiceImpl implements AppwriteService {
 
         if (error instanceof Error) {
           const message = error.message.toLowerCase();
-          
+
           if (message.includes('not found') || message.includes('404')) {
             throw new AppwriteError(
               'Avatar file not found in storage',
@@ -147,7 +173,7 @@ export class AppwriteServiceImpl implements AppwriteService {
               error
             );
           }
-          
+
           if (message.includes('permission') || message.includes('403')) {
             throw new AppwriteError(
               'Access denied to avatar file',
