@@ -69,9 +69,9 @@ export class AvatarHandler {
     } catch (error) {
       const classifiedError = ErrorClassifier.classify(error);
       const errorResponse = classifiedError.toResponse(correlationId);
-      
+
       ErrorLogger.logError(classifiedError, correlationId, this.getRequestContext(c));
-      
+
       return c.json(errorResponse, classifiedError.statusCode);
     }
   }
@@ -79,13 +79,9 @@ export class AvatarHandler {
   private validateRequest(c: AvatarHandlerContext, correlationId: string): { valid: boolean; response?: Response; request?: AvatarRequest } {
     try {
       const description = c.req.query('description');
-      const scale = c.req.query('scale');
-      const format = c.req.query('format');
 
       const validationResult = validateAvatarRequest({
-        description,
-        scale,
-        format
+        description
       });
 
       if (!validationResult.valid) {
@@ -110,9 +106,9 @@ export class AvatarHandler {
     } catch (error) {
       const classifiedError = ErrorClassifier.classify(error);
       const errorResponse = classifiedError.toResponse(correlationId);
-      
+
       ErrorLogger.logError(classifiedError, correlationId, this.getRequestContext(c));
-      
+
       return {
         valid: false,
         response: c.json(errorResponse, classifiedError.statusCode)
@@ -133,7 +129,7 @@ export class AvatarHandler {
 
   private async searchAvatars(avatarRequest: AvatarRequest): Promise<AvatarDocument[]> {
     const keywords = this.extractKeywords(avatarRequest.description);
-    
+
     if (keywords.length === 0) {
       throw ErrorClassifier.validationError(
         'No valid keywords found in description',
@@ -142,27 +138,26 @@ export class AvatarHandler {
     }
 
     const dbResults = await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
-    
+
     if (dbResults.length > 0) {
       const semanticResults = SemanticSearchService.scoreDocuments(
         avatarRequest.description,
         dbResults
       );
-      
+
       return semanticResults.map(result => result.document);
     }
-    
+
     return dbResults;
   }
 
   private async streamImageResponse(
-    avatar: AvatarDocument,
-    format: 'webp' | 'png'
+    avatar: AvatarDocument
   ): Promise<Response> {
     const fileUrl = await this.appwriteService.getFileUrl(avatar.bucketId, avatar.fileId);
-    
+
     const imageResponse = await fetch(fileUrl);
-    
+
     if (!imageResponse.ok) {
       throw new AvatarAPIError(
         'Failed to fetch image from storage',
@@ -173,10 +168,10 @@ export class AvatarHandler {
     }
 
     const headers = new Headers();
-    headers.set('Content-Type', format === 'png' ? 'image/png' : 'image/webp');
+    headers.set('Content-Type', 'image/png'); // Fixed format - matches your database images
     headers.set('Cache-Control', 'public, max-age=3600');
     headers.set('X-Avatar-Id', avatar.$id);
-    
+
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
     headers.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -211,7 +206,7 @@ export class AvatarHandler {
       const rateLimitTimer = new PerformanceTimer(correlationId, 'rate_limit_check');
       const rateLimitResponse = await this.checkRateLimit(c, correlationId);
       rateLimitTimer.finish(rateLimitResponse === null);
-      
+
       if (rateLimitResponse) {
         rateLimitRemaining = parseInt(rateLimitResponse.headers.get('X-RateLimit-Remaining') || '0');
         this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
@@ -226,7 +221,7 @@ export class AvatarHandler {
       const validationTimer = new PerformanceTimer(correlationId, 'request_validation');
       const validation = this.validateRequest(c, correlationId);
       validationTimer.finish(validation.valid);
-      
+
       if (!validation.valid || !validation.request) {
         this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
           status: 400,
@@ -242,25 +237,25 @@ export class AvatarHandler {
       const cacheTimer = new PerformanceTimer(correlationId, 'cache_check');
       const cachedResponse = await this.checkCache(c.req.raw, avatarRequest);
       cacheTimer.finish(true);
-      
+
       if (cachedResponse) {
         cacheHit = true;
         cachedResponse.headers.set('X-Correlation-ID', correlationId);
-        
+
         this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
           status: 200,
           totalResponseMs: requestTimer.getDuration(),
           cacheHit,
           cacheKey
         });
-        
+
         return cachedResponse;
       }
 
       const searchTimer = new PerformanceTimer(correlationId, 'appwrite_search');
       const avatars = await this.searchAvatars(avatarRequest);
       appwriteQueryMs = searchTimer.finish(true);
-      
+
       if (avatars.length === 0) {
         const error = ErrorClassifier.notFoundError(
           'No avatars found matching the description and scale'
@@ -276,10 +271,10 @@ export class AvatarHandler {
         });
 
         const notFoundResponse = c.json(errorResponse, 404);
-        
+
         const cacheRequest = cacheService.createCacheRequest(c.req.raw, avatarRequest);
         await cacheService.put(cacheRequest, notFoundResponse.clone());
-        
+
         return notFoundResponse;
       }
 
@@ -287,18 +282,18 @@ export class AvatarHandler {
       avatarId = selectedAvatar.$id;
 
       const streamTimer = new PerformanceTimer(correlationId, 'image_streaming');
-      const imageResponse = await this.streamImageResponse(selectedAvatar, avatarRequest.format);
+      const imageResponse = await this.streamImageResponse(selectedAvatar);
       streamTimer.finish(true);
-      
+
       imageResponse.headers.set('X-Correlation-ID', correlationId);
-      
+
       const cacheStoreTimer = new PerformanceTimer(correlationId, 'cache_storage');
       const cacheRequest = cacheService.createCacheRequest(c.req.raw, avatarRequest);
       await cacheService.put(cacheRequest, imageResponse.clone());
       cacheStoreTimer.finish(true);
 
       const finalResponse = cacheService.addCacheHeaders(imageResponse, false, cacheKey);
-      
+
       this.logRequestMetrics(correlationId, requestContext, avatarRequest, {
         status: 200,
         totalResponseMs: requestTimer.getDuration(),
