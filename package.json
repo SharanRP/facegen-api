@@ -6,6 +6,9 @@
   "scripts": {
     "setup": "bash scripts/setup.sh development",
     "seed": "node scripts/seed-data.js",
+    "generate": "node scripts/generate-avatars.js",
+    "generate:test": "node scripts/generate-avatars.js test",
+    "generate:category": "node scripts/generate-avatars.js single",
     "dev": "wrangler dev --env development",
     "deploy": "bash scripts/deploy.sh development",
     "deploy:staging": "bash scripts/deploy.sh staging",

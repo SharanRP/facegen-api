@@ -6,6 +6,7 @@ import { cacheService } from '../services/cache';
 import { createAppwriteService } from '../services/appwrite';
 import { AvatarAPIError, ErrorClassifier, CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
 import { PerformanceTimer, RequestLogger, RequestMetrics, MonitoringAggregator } from '../utils/logger';
+import SemanticSearchService from '../services/semantic-search';
 
 export interface AvatarHandlerContext extends Context {
   env: WorkerEnvironment;
@@ -140,7 +141,18 @@ export class AvatarHandler {
       );
     }
 
-    return await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
+    const dbResults = await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
+    
+    if (dbResults.length > 0) {
+      const semanticResults = SemanticSearchService.scoreDocuments(
+        avatarRequest.description,
+        dbResults
+      );
+      
+      return semanticResults.map(result => result.document);
+    }
+    
+    return dbResults;
   }
 
   private async streamImageResponse(
@@ -161,7 +173,7 @@ export class AvatarHandler {
     }
 
     const headers = new Headers();
-    headers.set('Content-Type', `image/${format}`);
+    headers.set('Content-Type', format === 'png' ? 'image/png' : 'image/webp');
     headers.set('Cache-Control', 'public, max-age=3600');
     headers.set('X-Avatar-Id', avatar.$id);
     
