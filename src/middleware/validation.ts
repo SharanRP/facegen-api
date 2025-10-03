@@ -42,7 +42,7 @@ export class ValidationMiddleware {
 
   static validateScale(scale: string | number | undefined): { valid: boolean; error?: string; sanitized: 128 | 256 | 512 } {
     if (!scale) {
-      return { valid: true, sanitized: 256 }; // Default to 256 if not provided
+      return { valid: true, sanitized: 256 };
     }
 
     const numericScale = typeof scale === 'string' ? parseInt(scale, 10) : scale;
@@ -102,8 +102,6 @@ export class ValidationMiddleware {
 
   static validateAvatarRequest(params: {
     description?: string;
-    scale?: string | number;
-    format?: string;
   }): ValidationResult {
     const errors: string[] = [];
     
@@ -112,24 +110,14 @@ export class ValidationMiddleware {
       errors.push(descriptionResult.error!);
     }
 
-    const scaleResult = this.validateScale(params.scale);
-    if (!scaleResult.valid) {
-      errors.push(scaleResult.error!);
-    }
-
-    const formatResult = this.validateFormat(params.format);
-    if (!formatResult.valid) {
-      errors.push(formatResult.error!);
-    }
-
     if (errors.length > 0) {
       return {
         valid: false,
         errors,
         sanitized: {
           description: descriptionResult.sanitized || '',
-          scale: scaleResult.sanitized,
-          format: formatResult.sanitized
+          scale: 256, 
+          format: 'png'
         }
       };
     }
@@ -139,8 +127,8 @@ export class ValidationMiddleware {
       errors: [],
       sanitized: {
         description: descriptionResult.sanitized!,
-        scale: scaleResult.sanitized!,
-        format: formatResult.sanitized
+        scale: 256,
+        format: 'png'
       }
     };
   }
@@ -148,8 +136,6 @@ export class ValidationMiddleware {
 
 export function validateAvatarRequest(params: {
   description?: string;
-  scale?: string | number;
-  format?: string;
 }): ValidationResult {
   return ValidationMiddleware.validateAvatarRequest(params);
 }
