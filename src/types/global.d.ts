@@ -6,6 +6,38 @@ declare global {
     delete(key: string): Promise<void>;
     list(options?: { prefix?: string; limit?: number }): Promise<{ keys: { name: string }[] }>;
   }
+
+  interface VectorizeMatch {
+    id: string;
+    score: number;
+    metadata?: Record<string, any>;
+  }
+
+  interface VectorizeQueryOptions {
+    topK?: number;
+    returnMetadata?: boolean;
+    filter?: Record<string, any>;
+  }
+
+  interface VectorizeQueryResult {
+    matches: VectorizeMatch[];
+    count: number;
+  }
+
+  interface Vectorize {
+    query(vector: number[], options?: VectorizeQueryOptions): Promise<VectorizeQueryResult>;
+    insert(vectors: Array<{
+      id: string;
+      values: number[];
+      metadata?: Record<string, any>;
+    }>): Promise<void>;
+    upsert(vectors: Array<{
+      id: string;
+      values: number[];
+      metadata?: Record<string, any>;
+    }>): Promise<void>;
+    deleteByIds(ids: string[]): Promise<void>;
+  }
 }
 
 export {};

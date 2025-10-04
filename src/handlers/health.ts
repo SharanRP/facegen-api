@@ -3,6 +3,7 @@ import { WorkerEnvironment } from '../types';
 import { CircuitBreakerFactory } from '../utils/circuit-breaker';
 import { CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
 import { MonitoringAggregator, Logger } from '../utils/logger';
+import { createVectorSearchService } from '../services/vector-search';
 
 export interface HealthCheckResponse {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -27,6 +28,12 @@ export interface HealthCheckResponse {
         totalRequests: number;
       };
     };
+    vectorSearch?: {
+      status: 'healthy' | 'degraded' | 'unhealthy';
+      vectorizeConnected: boolean;
+      ollamaConnected: boolean;
+      lastError?: string;
+    };
   };
   metrics?: {
     performance: Record<string, any>;
@@ -41,21 +48,25 @@ export interface HealthHandlerContext extends Context {
 }
 
 export class HealthHandler {
-  constructor(private env: WorkerEnvironment) {}
+  private vectorSearchService: ReturnType<typeof createVectorSearchService>;
+
+  constructor(private env: WorkerEnvironment) {
+    this.vectorSearchService = createVectorSearchService(env);
+  }
 
   private getServiceStatus(circuitBreakerState: string, totalRequests: number): 'healthy' | 'degraded' | 'unhealthy' {
     if (circuitBreakerState === 'OPEN') {
       return 'unhealthy';
     }
-    
+
     if (circuitBreakerState === 'HALF_OPEN') {
       return 'degraded';
     }
-    
+
     if (totalRequests === 0) {
       return 'healthy';
     }
-    
+
     return 'healthy';
   }
 
@@ -63,11 +74,11 @@ export class HealthHandler {
     if (databaseStatus === 'unhealthy' || storageStatus === 'unhealthy') {
       return 'unhealthy';
     }
-    
+
     if (databaseStatus === 'degraded' || storageStatus === 'degraded') {
       return 'degraded';
     }
-    
+
     return 'healthy';
   }
 
@@ -77,7 +88,7 @@ export class HealthHandler {
 
     try {
       const allMetrics = CircuitBreakerFactory.getAllMetrics();
-      
+
       const databaseMetrics = allMetrics['appwrite-database'] || {
         state: 'CLOSED',
         failures: 0,
@@ -102,6 +113,19 @@ export class HealthHandler {
 
       const databaseStatus = this.getServiceStatus(databaseMetrics.state, databaseMetrics.totalRequests);
       const storageStatus = this.getServiceStatus(storageMetrics.state, storageMetrics.totalRequests);
+
+      let vectorSearchHealth;
+      try {
+        vectorSearchHealth = await this.vectorSearchService.getSearchHealth();
+      } catch (error) {
+        vectorSearchHealth = {
+          status: 'unhealthy' as const,
+          vectorizeConnected: false,
+          ollamaConnected: false,
+          lastError: error instanceof Error ? error.message : String(error)
+        };
+      }
+
       const overallStatus = this.getOverallStatus(databaseStatus, storageStatus);
       const monitoringMetrics = MonitoringAggregator.getMetrics();
 
@@ -127,7 +151,8 @@ export class HealthHandler {
               successes: storageMetrics.successes,
               totalRequests: storageMetrics.totalRequests
             }
-          }
+          },
+          vectorSearch: vectorSearchHealth
         },
         metrics: {
           performance: monitoringMetrics.response_time_avatar_request || {},
@@ -143,12 +168,12 @@ export class HealthHandler {
         responseTimeMs: Date.now() - startTime
       });
 
-      const httpStatus = overallStatus === 'healthy' ? 200 : 
-                        overallStatus === 'degraded' ? 200 : 503;
+      const httpStatus = overallStatus === 'healthy' ? 200 :
+        overallStatus === 'degraded' ? 200 : 503;
 
       c.header('X-Correlation-ID', correlationId);
       c.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-      
+
       return c.json(healthResponse, httpStatus);
 
     } catch (error) {

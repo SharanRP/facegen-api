@@ -5,8 +5,8 @@ import { RateLimitTracker, DEFAULT_RATE_LIMIT_CONFIG } from '../middleware/ratel
 import { cacheService } from '../services/cache';
 import { createAppwriteService } from '../services/appwrite';
 import { AvatarAPIError, ErrorClassifier, CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
-import { PerformanceTimer, RequestLogger, RequestMetrics, MonitoringAggregator } from '../utils/logger';
-import SemanticSearchService from '../services/semantic-search';
+import { PerformanceTimer, RequestLogger, RequestMetrics } from '../utils/logger';
+import { createVectorSearchService, VectorSearchResult } from '../services/vector-search';
 
 export interface AvatarHandlerContext extends Context {
   env: WorkerEnvironment;
@@ -14,10 +14,12 @@ export interface AvatarHandlerContext extends Context {
 
 export class AvatarHandler {
   private appwriteService: ReturnType<typeof createAppwriteService>;
+  private vectorSearchService: ReturnType<typeof createVectorSearchService>;
   private rateLimitTracker: RateLimitTracker;
 
   constructor(env: WorkerEnvironment) {
     this.appwriteService = createAppwriteService(env);
+    this.vectorSearchService = createVectorSearchService(env);
     this.rateLimitTracker = new RateLimitTracker(env.RATE_LIMIT, DEFAULT_RATE_LIMIT_CONFIG);
   }
 
@@ -128,25 +130,54 @@ export class AvatarHandler {
   }
 
   private async searchAvatars(avatarRequest: AvatarRequest): Promise<AvatarDocument[]> {
-    const keywords = this.extractKeywords(avatarRequest.description);
-
-    // If no valid keywords, fall back to getting random avatars
-    if (keywords.length === 0) {
-      return await this.appwriteService.getFallbackAvatars(avatarRequest.scale);
-    }
-
-    const dbResults = await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
-
-    if (dbResults.length > 0) {
-      const semanticResults = SemanticSearchService.scoreDocuments(
+    try {
+      const vectorResults = await this.vectorSearchService.enhancedSemanticSearch(
         avatarRequest.description,
-        dbResults
+        {
+          limit: 10,
+          threshold: 0.6,
+          includeMetadata: true
+        }
       );
 
-      return semanticResults.map(result => result.document);
-    }
+      if (vectorResults.length > 0) {
+        return vectorResults.map(result => ({
+          $id: result.id,
+          description: result.metadata.description,
+          tags: result.metadata.tags,
+          fileId: result.metadata.fileId,
+          bucketId: result.metadata.bucketId,
+          width: result.metadata.width,
+          height: result.metadata.height
+        }));
+      }
 
-    return await this.appwriteService.getFallbackAvatars(avatarRequest.scale);
+      console.log('Vector search returned no results, falling back to keyword search');
+      const keywords = this.extractKeywords(avatarRequest.description);
+
+      if (keywords.length > 0) {
+        const dbResults = await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
+        if (dbResults.length > 0) {
+          return dbResults;
+        }
+      }
+
+      return await this.appwriteService.getFallbackAvatars(avatarRequest.scale);
+
+    } catch (error) {
+      console.error('Vector search error, falling back to keyword search:', error);
+
+      const keywords = this.extractKeywords(avatarRequest.description);
+
+      if (keywords.length > 0) {
+        const dbResults = await this.appwriteService.searchAvatars(keywords, avatarRequest.scale);
+        if (dbResults.length > 0) {
+          return dbResults;
+        }
+      }
+
+      return await this.appwriteService.getFallbackAvatars(avatarRequest.scale);
+    }
   }
 
   private async streamImageResponse(

@@ -8,6 +8,11 @@ export interface WorkerEnvironment {
   APPWRITE_COLLECTION_ID: string;
   APPWRITE_BUCKET_ID: string;
   RATE_LIMIT: KVNamespace;
+  OLLAMA_BASE_URL?: string;
+  OLLAMA_MODEL?: string;
+  VECTORIZE_INDEX_NAME?: string;
+  VECTORIZE: Vectorize;
+  
   [key: string]: any; // Index signature for Hono compatibility
 }
 
