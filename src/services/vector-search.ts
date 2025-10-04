@@ -1,4 +1,5 @@
 import { WorkerEnvironment } from '../types';
+import { createCloudflareEmbeddingService } from './cloudflare-embeddings';
 
 export interface VectorSearchResult {
   id: string;
@@ -22,38 +23,19 @@ export interface VectorSearchOptions {
 
 export class UltimateVectorSearchService {
   private env: WorkerEnvironment;
-  private ollamaBaseUrl: string;
-  private ollamaModel: string;
+  private cloudflareEmbedding: ReturnType<typeof createCloudflareEmbeddingService>;
 
   constructor(env: WorkerEnvironment) {
     this.env = env;
-    this.ollamaBaseUrl = env.OLLAMA_BASE_URL || 'http://localhost:11434';
-    this.ollamaModel = env.OLLAMA_MODEL || 'mxbai-embed-large:latest';
+    this.cloudflareEmbedding = createCloudflareEmbeddingService(env);
   }
 
   async generateQueryEmbedding(query: string): Promise<number[]> {
     try {
-      const response = await fetch(`${this.ollamaBaseUrl}/api/embeddings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: this.ollamaModel,
-          prompt: query.trim()
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Ollama API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json() as { embedding: number[] };
-      return data.embedding;
-
+      const result = await this.cloudflareEmbedding.generateEmbedding(query);
+      return result.embedding;
     } catch (error) {
-      console.error('Error generating query embedding:', error);
+      console.error('Cloudflare AI embedding failed:', error);
       throw new Error(`Failed to generate embedding: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -98,7 +80,7 @@ export class UltimateVectorSearchService {
     try {
       const queryEmbedding = await this.generateQueryEmbedding(query);
       const results = await this.searchSimilarVectors(queryEmbedding, options);
-      console.log(`Semantic search: "${query}" -> ${results.length} results`);
+
 
       return results;
 
@@ -115,14 +97,12 @@ export class UltimateVectorSearchService {
     try {
       let results = await this.semanticSearch(query, options);
       if (results.length < 3 && options.threshold && options.threshold > 0.5) {
-        console.log('Expanding search with lower threshold...');
         results = await this.semanticSearch(query, {
           ...options,
           threshold: 0.5
         });
       }
       if (results.length < 3) {
-        console.log('Trying query expansion...');
         const expandedQuery = this.expandQuery(query);
         if (expandedQuery !== query) {
           const expandedResults = await this.semanticSearch(expandedQuery, {
@@ -167,22 +147,22 @@ export class UltimateVectorSearchService {
   async getSearchHealth(): Promise<{
     status: 'healthy' | 'degraded' | 'unhealthy';
     vectorizeConnected: boolean;
-    ollamaConnected: boolean;
+    cloudflareAiConnected: boolean;
     lastError?: string;
   }> {
     let vectorizeConnected = false;
-    let ollamaConnected = false;
+    let cloudflareAiConnected = false;
     let lastError: string | undefined;
 
     try {
-      await this.generateQueryEmbedding('test');
-      ollamaConnected = true;
+      await this.cloudflareEmbedding.generateEmbedding('test');
+      cloudflareAiConnected = true;
     } catch (error) {
-      lastError = `Ollama API error: ${error instanceof Error ? error.message : String(error)}`;
+      lastError = `Cloudflare AI error: ${error instanceof Error ? error.message : String(error)}`;
     }
 
     try {
-      const testEmbedding = new Array(1024).fill(0.1); // 1024 dimensions for mxbai-embed-large
+      const testEmbedding = new Array(1024).fill(0.1);
       await this.env.VECTORIZE.query(testEmbedding, { topK: 1 });
       vectorizeConnected = true;
     } catch (error) {
@@ -193,9 +173,9 @@ export class UltimateVectorSearchService {
     }
 
     let status: 'healthy' | 'degraded' | 'unhealthy';
-    if (vectorizeConnected && ollamaConnected) {
+    if (vectorizeConnected && cloudflareAiConnected) {
       status = 'healthy';
-    } else if (vectorizeConnected || ollamaConnected) {
+    } else if (vectorizeConnected || cloudflareAiConnected) {
       status = 'degraded';
     } else {
       status = 'unhealthy';
@@ -204,7 +184,7 @@ export class UltimateVectorSearchService {
     return {
       status,
       vectorizeConnected,
-      ollamaConnected,
+      cloudflareAiConnected,
       lastError
     };
   }

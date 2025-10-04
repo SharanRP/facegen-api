@@ -31,7 +31,7 @@ export interface HealthCheckResponse {
     vectorSearch?: {
       status: 'healthy' | 'degraded' | 'unhealthy';
       vectorizeConnected: boolean;
-      ollamaConnected: boolean;
+      cloudflareAiConnected: boolean;
       lastError?: string;
     };
   };
@@ -121,7 +121,7 @@ export class HealthHandler {
         vectorSearchHealth = {
           status: 'unhealthy' as const,
           vectorizeConnected: false,
-          ollamaConnected: false,
+          cloudflareAiConnected: false,
           lastError: error instanceof Error ? error.message : String(error)
         };
       }

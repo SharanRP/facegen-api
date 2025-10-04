@@ -5,7 +5,6 @@
   "main": "src/index.ts",
   "scripts": {
     "setup": "bash scripts/setup.sh development",
-    "vectors": "node scripts/setup-vectors.js",
     "dev": "wrangler dev --env development",
     "deploy": "bash scripts/deploy.sh development",
     "deploy:staging": "bash scripts/deploy.sh staging",

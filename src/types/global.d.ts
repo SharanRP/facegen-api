@@ -38,6 +38,10 @@ declare global {
     }>): Promise<void>;
     deleteByIds(ids: string[]): Promise<void>;
   }
+
+  interface Ai {
+    run(model: string, options: { text: string }): Promise<{ data: number[][] }>;
+  }
 }
 
 export {};
