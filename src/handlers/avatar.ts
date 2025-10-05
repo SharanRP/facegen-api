@@ -4,6 +4,7 @@ import { validateAvatarRequest } from '../middleware/validation';
 import { RateLimitTracker, DEFAULT_RATE_LIMIT_CONFIG } from '../middleware/ratelimit';
 import { cacheService } from '../services/cache';
 import { createAppwriteService } from '../services/appwrite';
+import { createImageGenerationService } from '../services/image-generation';
 import { AvatarAPIError, ErrorClassifier, CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
 import { PerformanceTimer, RequestLogger, RequestMetrics } from '../utils/logger';
 import { createVectorSearchService, VectorSearchResult } from '../services/vector-search';
@@ -15,11 +16,13 @@ export interface AvatarHandlerContext extends Context {
 export class AvatarHandler {
   private appwriteService: ReturnType<typeof createAppwriteService>;
   private vectorSearchService: ReturnType<typeof createVectorSearchService>;
+  private imageGenerationService: ReturnType<typeof createImageGenerationService>;
   private rateLimitTracker: RateLimitTracker;
 
   constructor(env: WorkerEnvironment) {
     this.appwriteService = createAppwriteService(env);
     this.vectorSearchService = createVectorSearchService(env);
+    this.imageGenerationService = createImageGenerationService(env);
     this.rateLimitTracker = new RateLimitTracker(env.RATE_LIMIT, DEFAULT_RATE_LIMIT_CONFIG);
   }
 
@@ -131,16 +134,23 @@ export class AvatarHandler {
 
   private async searchAvatars(avatarRequest: AvatarRequest): Promise<AvatarDocument[]> {
     try {
+      const SCORE_THRESHOLD = 0.6;
       const vectorResults = await this.vectorSearchService.enhancedSemanticSearch(
         avatarRequest.description,
         {
           limit: 10,
-          threshold: 0.6,
+          threshold: SCORE_THRESHOLD,
           includeMetadata: true
         }
       );
 
       if (vectorResults.length > 0) {
+        const bestScore = vectorResults[0].score;
+        if (bestScore < SCORE_THRESHOLD) {
+          console.log(`Best vector score (${bestScore}) below threshold (${SCORE_THRESHOLD}), triggering async image generation`);
+          this.imageGenerationService.generateImageAsync(avatarRequest.description);
+        }
+
         return vectorResults.map(result => ({
           $id: result.id,
           description: result.metadata.description,
@@ -153,6 +163,7 @@ export class AvatarHandler {
       }
 
       console.log('Vector search returned no results, falling back to keyword search');
+      this.imageGenerationService.generateImageAsync(avatarRequest.description);
       const keywords = this.extractKeywords(avatarRequest.description);
 
       if (keywords.length > 0) {
