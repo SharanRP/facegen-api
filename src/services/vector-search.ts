@@ -1,5 +1,7 @@
 import { WorkerEnvironment } from '../types';
 import { createCloudflareEmbeddingService } from './cloudflare-embeddings';
+import { createImageGenerationService } from './image-generation';
+import { Logger } from '../utils/logger';
 
 export interface VectorSearchResult {
   id: string;
@@ -24,10 +26,12 @@ export interface VectorSearchOptions {
 export class UltimateVectorSearchService {
   private env: WorkerEnvironment;
   private cloudflareEmbedding: ReturnType<typeof createCloudflareEmbeddingService>;
+  private imageGenerationService: ReturnType<typeof createImageGenerationService>;
 
   constructor(env: WorkerEnvironment) {
     this.env = env;
     this.cloudflareEmbedding = createCloudflareEmbeddingService(env);
+    this.imageGenerationService = createImageGenerationService(env);
   }
 
   async generateQueryEmbedding(query: string): Promise<number[]> {
@@ -79,11 +83,44 @@ export class UltimateVectorSearchService {
   ): Promise<VectorSearchResult[]> {
     try {
       const queryEmbedding = await this.generateQueryEmbedding(query);
-      const results = await this.searchSimilarVectors(queryEmbedding, options);
 
+      const raw = await this.env.VECTORIZE.query(queryEmbedding, {
+        topK: options.limit ?? 10,
+        returnMetadata: options.includeMetadata ?? true,
+        filter: {}
+      });
+
+      const matches = raw.matches || [];
+
+      const bestRawScore = matches.length > 0 ? Math.max(...matches.map((m: any) => m.score)) : 0;
+
+      const threshold = options.threshold ?? 0.7;
+      const results: VectorSearchResult[] = matches
+        .filter((match: any) => match.score >= threshold)
+        .slice(0, options.limit ?? 10)
+        .map((match: any) => ({
+          id: match.id,
+          score: match.score,
+          metadata: match.metadata as VectorSearchResult['metadata']
+        }));
+
+      try {
+        const POOR_SCORE_TRIGGER = 0.5;
+        if (matches.length === 0 || bestRawScore < POOR_SCORE_TRIGGER) {
+          Logger.info('vector-search-background-gen', 'Triggering background image generation due to poor or missing raw results', {
+            query,
+            bestRawScore,
+            rawCount: matches.length,
+            threshold: POOR_SCORE_TRIGGER
+          });
+
+          this.imageGenerationService.generateImageAsync(query);
+        }
+      } catch (bgError) {
+        console.error('Background image generation trigger failed:', bgError);
+      }
 
       return results;
-
     } catch (error) {
       console.error('Semantic search error:', error);
       throw error;

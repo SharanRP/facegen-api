@@ -6,7 +6,7 @@ import { cacheService } from '../services/cache';
 import { createAppwriteService } from '../services/appwrite';
 import { createImageGenerationService } from '../services/image-generation';
 import { AvatarAPIError, ErrorClassifier, CorrelationIdGenerator, ErrorLogger } from '../utils/errors';
-import { PerformanceTimer, RequestLogger, RequestMetrics } from '../utils/logger';
+import { PerformanceTimer, RequestLogger, RequestMetrics, Logger } from '../utils/logger';
 import { createVectorSearchService, VectorSearchResult } from '../services/vector-search';
 
 export interface AvatarHandlerContext extends Context {
@@ -16,13 +16,11 @@ export interface AvatarHandlerContext extends Context {
 export class AvatarHandler {
   private appwriteService: ReturnType<typeof createAppwriteService>;
   private vectorSearchService: ReturnType<typeof createVectorSearchService>;
-  private imageGenerationService: ReturnType<typeof createImageGenerationService>;
   private rateLimitTracker: RateLimitTracker;
 
   constructor(env: WorkerEnvironment) {
     this.appwriteService = createAppwriteService(env);
     this.vectorSearchService = createVectorSearchService(env);
-    this.imageGenerationService = createImageGenerationService(env);
     this.rateLimitTracker = new RateLimitTracker(env.RATE_LIMIT, DEFAULT_RATE_LIMIT_CONFIG);
   }
 
@@ -134,23 +132,16 @@ export class AvatarHandler {
 
   private async searchAvatars(avatarRequest: AvatarRequest): Promise<AvatarDocument[]> {
     try {
-      const SCORE_THRESHOLD = 0.6;
       const vectorResults = await this.vectorSearchService.enhancedSemanticSearch(
         avatarRequest.description,
         {
           limit: 10,
-          threshold: SCORE_THRESHOLD,
+          threshold: 0.6,
           includeMetadata: true
         }
       );
 
       if (vectorResults.length > 0) {
-        const bestScore = vectorResults[0].score;
-        if (bestScore < SCORE_THRESHOLD) {
-          console.log(`Best vector score (${bestScore}) below threshold (${SCORE_THRESHOLD}), triggering async image generation`);
-          this.imageGenerationService.generateImageAsync(avatarRequest.description);
-        }
-
         return vectorResults.map(result => ({
           $id: result.id,
           description: result.metadata.description,
@@ -163,7 +154,6 @@ export class AvatarHandler {
       }
 
       console.log('Vector search returned no results, falling back to keyword search');
-      this.imageGenerationService.generateImageAsync(avatarRequest.description);
       const keywords = this.extractKeywords(avatarRequest.description);
 
       if (keywords.length > 0) {
@@ -199,6 +189,44 @@ export class AvatarHandler {
     const imageResponse = await fetch(fileUrl);
 
     if (!imageResponse.ok) {
+      if (imageResponse.status === 404) {
+        Logger.error('avatar-stream-404', 'Avatar file not found in storage; attempting fallback', {
+          avatarId: avatar.$id,
+          bucketId: avatar.bucketId,
+          fileId: avatar.fileId
+        });
+
+        try {
+          const fallbackAvatars = await this.appwriteService.getFallbackAvatars(avatar.width || 256);
+          if (fallbackAvatars && fallbackAvatars.length > 0) {
+            const fallback = fallbackAvatars[0];
+            const fallbackUrl = await this.appwriteService.getFileUrl(fallback.bucketId, fallback.fileId);
+            const fallbackResp = await fetch(fallbackUrl);
+            if (fallbackResp.ok) {
+              const headers = new Headers();
+              headers.set('Content-Type', 'image/png');
+              headers.set('Cache-Control', 'public, max-age=3600');
+              headers.set('X-Avatar-Id', fallback.$id);
+              headers.set('Access-Control-Allow-Origin', '*');
+              headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+              headers.set('Access-control-allow-headers', 'Content-Type');
+              headers.set('Access-Control-Max-Age', '86400');
+
+              const contentLength = fallbackResp.headers.get('Content-Length');
+              if (contentLength) {
+                headers.set('Content-Length', contentLength);
+              }
+
+              return new Response(fallbackResp.body, {
+                status: 200,
+                headers
+              });
+            }
+          }
+        } catch (fbErr) {
+          console.error('Failed to fetch fallback image after 404:', fbErr);
+        }
+      }
       throw new AvatarAPIError(
         'Failed to fetch image from storage',
         ErrorType.STORAGE_ACCESS_ERROR,
