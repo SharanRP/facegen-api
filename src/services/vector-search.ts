@@ -106,12 +106,18 @@ export class UltimateVectorSearchService {
 
       try {
         const POOR_SCORE_TRIGGER = 0.5;
-        if (matches.length === 0 || bestRawScore < POOR_SCORE_TRIGGER) {
-          Logger.info('vector-search-background-gen', 'Triggering background image generation due to poor or missing raw results', {
+        const shouldTriggerBackground =
+          matches.length === 0 ||
+          results.length === 0 ||
+          bestRawScore < POOR_SCORE_TRIGGER;
+
+        if (shouldTriggerBackground) {
+          Logger.info('vector-search-background-gen', 'Triggering background image generation due to poor or missing results', {
             query,
             bestRawScore,
             rawCount: matches.length,
-            threshold: POOR_SCORE_TRIGGER
+            filteredCount: results.length,
+            threshold
           });
 
           this.imageGenerationService.generateImageAsync(query);
@@ -127,10 +133,7 @@ export class UltimateVectorSearchService {
     }
   }
 
-  async enhancedSemanticSearch(
-    query: string,
-    options: VectorSearchOptions = {}
-  ): Promise<VectorSearchResult[]> {
+  async enhancedSemanticSearch(query: string, options: VectorSearchOptions = {}): Promise<VectorSearchResult[]> {
     try {
       let results = await this.semanticSearch(query, options);
       if (results.length < 3 && options.threshold && options.threshold > 0.5) {
