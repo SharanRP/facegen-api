@@ -95,6 +95,17 @@ export class UltimateVectorSearchService {
       const bestRawScore = matches.length > 0 ? Math.max(...matches.map((m: any) => m.score)) : 0;
 
       const threshold = options.threshold ?? 0.7;
+      Logger.debug('vector-search-matches', 'vector-search-matches',{
+        query,
+        bestRawScore,
+        threshold,
+        matches: matches.map(m => ({
+          id: m.id,
+          score: m.score,
+          passedThreshold: m.score >= threshold,
+          description: m.metadata?.description || 'no-description'
+        }))
+      });
       const results: VectorSearchResult[] = matches
         .filter((match: any) => match.score >= threshold)
         .slice(0, options.limit ?? 10)
