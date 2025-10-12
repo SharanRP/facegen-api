@@ -14,11 +14,11 @@ The service uses **semantic search** to match user descriptions with a curated d
 
 ## 🌐 Live API
 
-**Production URL:** `https://avatar-api-service.avatar-api.workers.dev`
+**Production URL:** `https://facegen-api.avatar-api.workers.dev`
 
 ### Quick Test
 ```html
-<img src="https://avatar-api-service.avatar-api.workers.dev/avatar?description=professional" alt="Avatar" />
+<img src="https://facegen-api.avatar-api.workers.dev/avatar?description=professional" alt="Avatar" />
 ```
 
 ## 📡 API Endpoints
@@ -210,14 +210,14 @@ npm run deploy:production   # Deploy to production
 ## 🌍 Deployment Environments
 
 - **Development**: `http://localhost:8787` (local testing)
-- **Staging**: `https://avatar-api-service-staging.avatar-api.workers.dev`
-- **Production**: `https://avatar-api-service.avatar-api.workers.dev`
+- **Staging**: `https://facegen-api-staging.avatar-api.workers.dev`
+- **Production**: `https://facegen-api.avatar-api.workers.dev`
 
 ## 🎨 Usage Examples
 
 ### HTML
 ```html
-<img src="https://avatar-api-service.avatar-api.workers.dev/avatar?description=professional" 
+<img src="https://facegen-api.avatar-api.workers.dev/avatar?description=professional" 
      alt="Professional Avatar" width="256" height="256" />
 ```
 
@@ -226,7 +226,7 @@ npm run deploy:production   # Deploy to production
 function Avatar({ userType }) {
   return (
     <img 
-      src={`https://avatar-api-service.avatar-api.workers.dev/avatar?description=${userType}`}
+  src={`https://facegen-api.avatar-api.workers.dev/avatar?description=${userType}`}
       alt={`${userType} avatar`}
       width="256" 
       height="256"
@@ -238,7 +238,7 @@ function Avatar({ userType }) {
 ### CSS
 ```css
 .profile-pic {
-  background-image: url('https://avatar-api-service.avatar-api.workers.dev/avatar?description=professional');
+  background-image: url('https://facegen-api.avatar-api.workers.dev/avatar?description=professional');
   width: 256px;
   height: 256px;
   border-radius: 50%;

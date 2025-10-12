@@ -1,5 +1,5 @@
 {
-  "name": "avatar-api-service",
+  "name": "facegen-api",
   "version": "1.0.0",
   "description": "A Cloudflare Worker API service for serving avatar images with Appwrite backend",
   "main": "src/index.ts",

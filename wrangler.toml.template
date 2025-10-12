@@ -1,4 +1,4 @@
-name = "avatar-api-service"
+name = "face-gen-api"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
@@ -9,7 +9,7 @@ command = "npm run build"
 
 # Development environment
 [env.development]
-name = "avatar-api-service-dev"
+name = "face-gen-api-dev"
 
 [env.development.vars]
 ENVIRONMENT = "development"
@@ -32,7 +32,7 @@ VECTOR_SEARCH_INCLUDE_METADATA = "true"
 
 # Staging environment
 [env.staging]
-name = "avatar-api-service-staging"
+name = "face-gen-api-staging"
 
 [env.staging.vars]
 ENVIRONMENT = "staging"
@@ -54,7 +54,7 @@ VECTOR_SEARCH_INCLUDE_METADATA = "true"
 
 # Production environment
 [env.production]
-name = "avatar-api-service"
+name = "face-gen-api"
 
 [env.production.vars]
 ENVIRONMENT = "production"
