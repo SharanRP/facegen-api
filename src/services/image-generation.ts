@@ -15,7 +15,7 @@ export class ImageGenerationServiceImpl implements ImageGenerationService {
 
   constructor(env: WorkerEnvironment) {
     this.env = env;
-    this.imageServiceUrl = 'https://avatar-generation-production.avatar-api.workers.dev/generate';
+    this.imageServiceUrl = env.IMAGE_SERVICE_URL || '';
   }
 
   generateImageAsync(description: string): void {

@@ -27,11 +27,23 @@ export class UltimateVectorSearchService {
   private env: WorkerEnvironment;
   private cloudflareEmbedding: ReturnType<typeof createCloudflareEmbeddingService>;
   private imageGenerationService: ReturnType<typeof createImageGenerationService>;
+  private defaultLimit: number;
+  private defaultThreshold: number;
+  private defaultIncludeMetadata: boolean;
 
   constructor(env: WorkerEnvironment) {
     this.env = env;
     this.cloudflareEmbedding = createCloudflareEmbeddingService(env);
     this.imageGenerationService = createImageGenerationService(env);
+    // Minimal parsing from environment variables. Rely on deployer to provide correct values.
+    this.defaultLimit = Number.isFinite(Number.parseInt(String(this.env.VECTOR_SEARCH_LIMIT || ''), 10))
+      ? Number.parseInt(String(this.env.VECTOR_SEARCH_LIMIT), 10)
+      : 10;
+    this.defaultThreshold = Number.isFinite(Number.parseFloat(String(this.env.VECTOR_SEARCH_THRESHOLD || '')))
+      ? Number.parseFloat(String(this.env.VECTOR_SEARCH_THRESHOLD))
+      : 0.7;
+    const includeRaw = (this.env.VECTOR_SEARCH_INCLUDE_METADATA || '').toString().toLowerCase();
+    this.defaultIncludeMetadata = includeRaw === 'false' || includeRaw === '0' ? false : true;
   }
 
   async generateQueryEmbedding(query: string): Promise<number[]> {
@@ -50,9 +62,9 @@ export class UltimateVectorSearchService {
   ): Promise<VectorSearchResult[]> {
     try {
       const {
-        limit = 10,
-        threshold = 0.7,
-        includeMetadata = true
+        limit = this.defaultLimit ?? 10,
+        threshold = this.defaultThreshold ?? 0.7,
+        includeMetadata = this.defaultIncludeMetadata ?? true
       } = options;
 
       const results = await this.env.VECTORIZE.query(queryEmbedding, {

@@ -24,6 +24,10 @@ CACHE_TTL_ERROR = "300"
 CIRCUIT_BREAKER_THRESHOLD = "5"
 CIRCUIT_BREAKER_TIMEOUT = "30000"
 LOG_LEVEL = "debug"
+IMAGE_SERVICE_URL = "https://avatar-generation-production.avatar-api.workers.dev/generate"
+VECTOR_SEARCH_LIMIT = "10"
+VECTOR_SEARCH_THRESHOLD = "0.7"
+VECTOR_SEARCH_INCLUDE_METADATA = "true"
 
 # Staging environment
 [env.staging]
@@ -42,6 +46,10 @@ CACHE_TTL_ERROR = "300"
 CIRCUIT_BREAKER_THRESHOLD = "5"
 CIRCUIT_BREAKER_TIMEOUT = "30000"
 LOG_LEVEL = "info"
+IMAGE_SERVICE_URL = "https://avatar-generation-production.avatar-api.workers.dev/generate"
+VECTOR_SEARCH_LIMIT = "10"
+VECTOR_SEARCH_THRESHOLD = "0.7"
+VECTOR_SEARCH_INCLUDE_METADATA = "true"
 
 # Production environment
 [env.production]
@@ -60,6 +68,10 @@ CACHE_TTL_ERROR = "300"
 CIRCUIT_BREAKER_THRESHOLD = "5"
 CIRCUIT_BREAKER_TIMEOUT = "30000"
 LOG_LEVEL = "info"
+IMAGE_SERVICE_URL = "https://avatar-generation-production.avatar-api.workers.dev/generate"
+VECTOR_SEARCH_LIMIT = "10"
+VECTOR_SEARCH_THRESHOLD = "0.7"
+VECTOR_SEARCH_INCLUDE_METADATA = "true"
 
 # KV namespace for rate limiting - Development
 [[env.development.kv_namespaces]]
