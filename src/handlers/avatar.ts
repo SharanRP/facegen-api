@@ -81,7 +81,13 @@ export class AvatarHandler {
 
   private validateRequest(c: AvatarHandlerContext, correlationId: string): { valid: boolean; response?: Response; request?: AvatarRequest } {
     try {
-      const description = c.req.query('description');
+      let description = c.req.query('description');
+      if (!description) {
+        const pathDesc = (c.req as any).param && (c.req as any).param('description');
+        if (pathDesc) {
+          description = String(pathDesc).replace(/[-_]+/g, ' ');
+        }
+      }
 
       const validationResult = validateAvatarRequest({
         description
