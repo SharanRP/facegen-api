@@ -50,6 +50,20 @@ app.get('/avatar', (c) => {
   return avatarHandler(c as AvatarHandlerContext);
 });
 
+app.get('/:description', (c) => {
+  if (!c.env) {
+    const correlationId = CorrelationIdGenerator.generate();
+    const error = ErrorClassifier.classify(new Error('Environment not available'));
+    const errorResponse = error.toResponse(correlationId);
+    
+    c.header('X-Correlation-ID', correlationId);
+    return c.json(errorResponse, error.statusCode);
+  }
+  
+  const avatarHandler = createAvatarHandler(c.env);
+  return avatarHandler(c as AvatarHandlerContext);
+});
+
 app.get('/metrics', (c) => {
   const correlationId = CorrelationIdGenerator.generate();
   const startTime = Date.now();
