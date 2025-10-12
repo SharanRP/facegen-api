@@ -12,10 +12,12 @@ export interface ImageGenerationService {
 export class ImageGenerationServiceImpl implements ImageGenerationService {
   private env: WorkerEnvironment;
   private imageServiceUrl: string;
+  private imageServiceKey: string;
 
   constructor(env: WorkerEnvironment) {
     this.env = env;
     this.imageServiceUrl = env.IMAGE_SERVICE_URL || '';
+    this.imageServiceKey = env.IMAGE_SERVICE_KEY || '';
   }
 
   generateImageAsync(description: string): void {
@@ -38,7 +40,8 @@ export class ImageGenerationServiceImpl implements ImageGenerationService {
       const response = await fetch(this.imageServiceUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-service-key': this.imageServiceKey
         },
         body: JSON.stringify({ description })
       });
