@@ -1,10 +1,10 @@
-# Avatar API Service
+# Facegen API Service
 
 A fast, semantic avatar API service built on Cloudflare Workers that serves curated avatar images based on natural language descriptions. Think DiceBear, but with real images and intelligent search.
 
 ## 🎯 What This Project Does
 
-The Avatar API Service allows users to get avatar images by simply describing what they want in natural language. Instead of using random seeds or complex parameters, users can request avatars like:
+The Facegen API Service allows users to get avatar images by simply describing what they want in natural language. Instead of using random seeds or complex parameters, users can request avatars like:
 
 - `?description=professional` → Returns a professional business avatar
 - `?description=doctor-smile` → Returns a friendly medical professional avatar  
